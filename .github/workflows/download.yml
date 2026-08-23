@@ -27,27 +27,36 @@ jobs:
         run: |
           ./gradle-9.5.0/bin/gradle --version
 
-      - name: Resolve AGP 9.3.0
+      - name: Resolve AGP and all dependencies
         run: |
-          ./gradle-9.5.0/bin/gradle help --refresh-dependencies --stacktrace
+          ./gradle-9.5.0/bin/gradle \
+            help \
+            --refresh-dependencies \
+            --stacktrace
 
-      - name: Show AGP cache
+      - name: Show AGP dependencies
         run: |
-          echo "=== AGP CACHE ==="
+          echo "=== AGP ==="
           find ~/.gradle/caches/modules-2/files-2.1/com.android.tools.build/gradle \
             -type f 2>/dev/null || true
 
-      - name: Package AGP cache
+          echo "=== ALL MODULES ==="
+          find ~/.gradle/caches/modules-2/files-2.1 \
+            -type f 2>/dev/null | wc -l
+
+      - name: Package complete Gradle dependency cache
         run: |
           mkdir -p output
 
-          tar -czf output/agp-9.3.0-cache.tar.gz \
-            -C ~/.gradle/caches/modules-2/files-2.1 \
-            com.android.tools.build/gradle
+          tar -czf output/agp-9.3.0-full-cache.tar.gz \
+            -C ~/.gradle/caches \
+            modules-2
 
-      - name: Upload AGP cache
+          ls -lh output/agp-9.3.0-full-cache.tar.gz
+
+      - name: Upload complete Gradle cache
         uses: actions/upload-artifact@v4
         with:
-          name: agp-9.3.0-cache
-          path: output/agp-9.3.0-cache.tar.gz
+          name: agp-9.3.0-full-cache
+          path: output/agp-9.3.0-full-cache.tar.gz
           retention-days: 7
