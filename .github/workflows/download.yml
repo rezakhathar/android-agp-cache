@@ -1,4 +1,4 @@
-name: Download AGP 9.3.0 Offline
+name: Download Complete AGP 9.3.0 Cache
 
 on:
   workflow_dispatch:
@@ -21,37 +21,20 @@ jobs:
         run: |
           wget -q https://services.gradle.org/distributions/gradle-9.5.0-bin.zip
           unzip -q gradle-9.5.0-bin.zip
-          chmod +x gradle-9.5.0/bin/gradle
 
-      - name: Show Gradle version
+      - name: Resolve ALL dependencies
         run: |
-          ./gradle-9.5.0/bin/gradle --version
+          ./gradle-9.5.0/bin/gradle build --refresh-dependencies --stacktrace
 
-      - name: Resolve AGP 9.3.0
+      - name: Package COMPLETE Gradle cache
         run: |
-          ./gradle-9.5.0/bin/gradle help --refresh-dependencies --stacktrace
+          tar -czf agp-9.3.0-complete-cache.tar.gz \
+            -C ~/.gradle \
+            caches
 
-      - name: Show resolved Android dependencies
-        run: |
-          echo "=== AGP ==="
-          find ~/.gradle/caches/modules-2/files-2.1/com.android.tools.build \
-            -type f 2>/dev/null || true
-
-          echo "=== Android Build API ==="
-          find ~/.gradle/caches/modules-2/files-2.1/com.android.build \
-            -type f 2>/dev/null || true
-
-      - name: Package Gradle dependency cache
-        run: |
-          mkdir -p output
-
-          tar -czf output/gradle-modules-cache.tar.gz \
-            -C ~/.gradle/caches \
-            modules-2
-
-      - name: Upload Gradle dependency cache
+      - name: Upload COMPLETE cache
         uses: actions/upload-artifact@v4
         with:
-          name: gradle-modules-cache
-          path: output/gradle-modules-cache.tar.gz
+          name: agp-9.3.0-complete-cache
+          path: agp-9.3.0-complete-cache.tar.gz
           retention-days: 7
