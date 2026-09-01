@@ -1,4 +1,4 @@
-name: Download Complete AGP 9.3.0 Cache
+name: Download AGP 9.3.0 Offline
 
 on:
   workflow_dispatch:
@@ -22,19 +22,25 @@ jobs:
           wget -q https://services.gradle.org/distributions/gradle-9.5.0-bin.zip
           unzip -q gradle-9.5.0-bin.zip
 
-      - name: Resolve ALL dependencies
+      - name: Resolve AGP and all dependencies
         run: |
-          ./gradle-9.5.0/bin/gradle build --refresh-dependencies --stacktrace
+          ./gradle-9.5.0/bin/gradle help --refresh-dependencies --stacktrace
 
-      - name: Package COMPLETE Gradle cache
+      - name: Package ALL Gradle module dependencies
         run: |
-          tar -czf agp-9.3.0-complete-cache.tar.gz \
-            -C ~/.gradle \
-            caches
+          mkdir -p output
 
-      - name: Upload COMPLETE cache
+          tar -czf output/agp-9.3.0-complete-cache.tar.gz \
+            -C ~/.gradle/caches/modules-2 \
+            files-2.1
+
+      - name: Show archive size
+        run: |
+          ls -lh output/agp-9.3.0-complete-cache.tar.gz
+
+      - name: Upload complete cache
         uses: actions/upload-artifact@v4
         with:
           name: agp-9.3.0-complete-cache
-          path: agp-9.3.0-complete-cache.tar.gz
+          path: output/agp-9.3.0-complete-cache.tar.gz
           retention-days: 7
