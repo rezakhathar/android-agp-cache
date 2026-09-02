@@ -22,7 +22,7 @@ jobs:
 
           unzip -q gradle-9.5.0-bin.zip
 
-      - name: Create dependency resolver project
+      - name: Create resolver project
         run: |
           mkdir -p resolver
 
@@ -46,16 +46,8 @@ jobs:
           EOF
 
           cat > resolver/build.gradle <<'EOF'
-          buildscript {
-              repositories {
-                  google()
-                  mavenCentral()
-                  gradlePluginPortal()
-              }
-
-              dependencies {
-                  classpath 'com.android.tools.build:gradle:9.3.0'
-              }
+          plugins {
+              id 'com.android.application' version '9.3.0' apply false
           }
 
           configurations {
@@ -71,35 +63,50 @@ jobs:
 
           tasks.register('resolveAll') {
               doLast {
-                  println "Resolving Android dependencies..."
                   configurations.androidDependencies.resolve()
-                  println "All dependencies resolved."
+                  println 'Android dependencies resolved.'
               }
           }
           EOF
 
-      - name: Resolve AGP and all dependencies
+      - name: Resolve plugin marker and dependencies
         working-directory: resolver
         run: |
+          ../gradle-9.5.0/bin/gradle help \
+            --refresh-dependencies \
+            --no-daemon \
+            --stacktrace
+
           ../gradle-9.5.0/bin/gradle resolveAll \
             --refresh-dependencies \
             --no-daemon \
             --stacktrace
 
-      - name: Show downloaded modules
+      - name: Show important cache
         run: |
-          echo "===== GRADLE MODULE CACHE ====="
+          echo "===== ANDROID APPLICATION PLUGIN MARKER ====="
+
           find ~/.gradle/caches/modules-2/files-2.1 \
+            -path "*com.android.application*" \
             -type f | sort
 
-      - name: Package COMPLETE Gradle cache
+          echo "===== ANDROID GRADLE PLUGIN ====="
+
+          find ~/.gradle/caches/modules-2/files-2.1 \
+            -path "*com.android.tools.build/gradle/9.3.0*" \
+            -type f | sort
+
+          echo "===== TOTAL CACHE FILES ====="
+
+          find ~/.gradle/caches/modules-2 -type f | wc -l
+
+      - name: Package complete cache
         run: |
           cd ~/.gradle/caches
 
           tar -czf "$GITHUB_WORKSPACE/agp-9.3.0-complete-cache.tar.gz" \
             modules-2
 
-          echo "===== ARCHIVE ====="
           ls -lh "$GITHUB_WORKSPACE/agp-9.3.0-complete-cache.tar.gz"
 
       - name: Upload complete cache
