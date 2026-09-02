@@ -1,4 +1,4 @@
-name: Download AGP 9.3.0 Offline
+name: Download AGP 9.3.0 Complete Cache
 
 on:
   workflow_dispatch:
@@ -8,9 +8,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Setup Java 17
         uses: actions/setup-java@v5
         with:
@@ -19,28 +16,95 @@ jobs:
 
       - name: Download Gradle 9.5.0
         run: |
-          wget -q https://services.gradle.org/distributions/gradle-9.5.0-bin.zip
+          curl -L --fail \
+            -o gradle-9.5.0-bin.zip \
+            https://services.gradle.org/distributions/gradle-9.5.0-bin.zip
+
           unzip -q gradle-9.5.0-bin.zip
 
+      - name: Create dependency resolver project
+        run: |
+          mkdir -p resolver
+
+          cat > resolver/settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name = 'resolver'
+          EOF
+
+          cat > resolver/build.gradle <<'EOF'
+          buildscript {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+
+              dependencies {
+                  classpath 'com.android.tools.build:gradle:9.3.0'
+              }
+          }
+
+          configurations {
+              androidDependencies
+          }
+
+          dependencies {
+              androidDependencies 'androidx.appcompat:appcompat:1.6.1'
+              androidDependencies 'com.google.android.material:material:1.10.0'
+              androidDependencies 'androidx.constraintlayout:constraintlayout:2.1.4'
+              androidDependencies 'com.squareup.okhttp3:okhttp:4.12.0'
+          }
+
+          tasks.register('resolveAll') {
+              doLast {
+                  println "Resolving Android dependencies..."
+                  configurations.androidDependencies.resolve()
+                  println "All dependencies resolved."
+              }
+          }
+          EOF
+
       - name: Resolve AGP and all dependencies
+        working-directory: resolver
         run: |
-          ./gradle-9.5.0/bin/gradle help --refresh-dependencies --stacktrace
+          ../gradle-9.5.0/bin/gradle resolveAll \
+            --refresh-dependencies \
+            --no-daemon \
+            --stacktrace
 
-      - name: Package ALL Gradle module dependencies
+      - name: Show downloaded modules
         run: |
-          mkdir -p output
+          echo "===== GRADLE MODULE CACHE ====="
+          find ~/.gradle/caches/modules-2/files-2.1 \
+            -type f | sort
 
-          tar -czf output/agp-9.3.0-complete-cache.tar.gz \
-            -C ~/.gradle/caches/modules-2 \
-            files-2.1
-
-      - name: Show archive size
+      - name: Package COMPLETE Gradle cache
         run: |
-          ls -lh output/agp-9.3.0-complete-cache.tar.gz
+          cd ~/.gradle/caches
+
+          tar -czf "$GITHUB_WORKSPACE/agp-9.3.0-complete-cache.tar.gz" \
+            modules-2
+
+          echo "===== ARCHIVE ====="
+          ls -lh "$GITHUB_WORKSPACE/agp-9.3.0-complete-cache.tar.gz"
 
       - name: Upload complete cache
         uses: actions/upload-artifact@v4
         with:
           name: agp-9.3.0-complete-cache
-          path: output/agp-9.3.0-complete-cache.tar.gz
+          path: agp-9.3.0-complete-cache.tar.gz
           retention-days: 7
