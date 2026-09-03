@@ -55,8 +55,18 @@ jobs:
           }
 
           dependencies {
+
+              // AAPT2 main artifact
               androidDependencies 'com.android.tools.build:aapt2:9.3.0-15703166'
 
+              // IMPORTANT:
+              // Explicitly download the Windows AAPT2 artifact.
+              androidDependencies 'com.android.tools.build:aapt2:9.3.0-15703166:windows@jar'
+
+              // AAPT2 proto
+              androidDependencies 'com.android.tools.build:aapt2-proto:9.3.0-15703166'
+
+              // Application dependencies
               androidDependencies 'androidx.appcompat:appcompat:1.6.1'
               androidDependencies 'com.google.android.material:material:1.10.0'
               androidDependencies 'androidx.constraintlayout:constraintlayout:2.1.4'
@@ -84,29 +94,81 @@ jobs:
             --no-daemon \
             --stacktrace
 
-      - name: Show important cache
+      - name: Verify required artifacts
         run: |
-          echo "===== ANDROID APPLICATION PLUGIN MARKER ====="
+          echo ""
+          echo "=============================================="
+          echo "ANDROID APPLICATION PLUGIN MARKER"
+          echo "=============================================="
 
           find ~/.gradle/caches/modules-2/files-2.1 \
             -path "*com.android.application*" \
             -type f | sort
 
-          echo "===== ANDROID GRADLE PLUGIN ====="
+          echo ""
+          echo "=============================================="
+          echo "ANDROID GRADLE PLUGIN 9.3.0"
+          echo "=============================================="
 
           find ~/.gradle/caches/modules-2/files-2.1 \
             -path "*com.android.tools.build/gradle/9.3.0*" \
             -type f | sort
 
-          echo "===== AAPT2 ====="
+          echo ""
+          echo "=============================================="
+          echo "AAPT2 9.3.0-15703166"
+          echo "=============================================="
+
+          find ~/.gradle/caches/modules-2/files-2.1.0 \
+            -path "*com.android.tools.build/aapt2/9.3.0-15703166*" \
+            -type f | sort 2>/dev/null || true
 
           find ~/.gradle/caches/modules-2/files-2.1 \
             -path "*com.android.tools.build/aapt2/9.3.0-15703166*" \
             -type f | sort
 
-          echo "===== TOTAL CACHE FILES ====="
+          echo ""
+          echo "=============================================="
+          echo "WINDOWS AAPT2 JAR"
+          echo "=============================================="
+
+          find ~/.gradle/caches/modules-2 \
+            -type f \
+            -name "aapt2-9.3.0-15703166-windows.jar" \
+            -print
+
+          echo ""
+          echo "=============================================="
+          echo "AAPT2 PROTO"
+          echo "=============================================="
+
+          find ~/.gradle/caches/modules-2/files-2.1 \
+            -path "*com.android.tools.build/aapt2-proto/9.3.0-15703166*" \
+            -type f | sort
+
+          echo ""
+          echo "=============================================="
+          echo "TOTAL CACHE FILES"
+          echo "=============================================="
 
           find ~/.gradle/caches/modules-2 -type f | wc -l
+
+      - name: Check Windows AAPT2 exists
+        run: |
+          AAPT2_FILE=$(find ~/.gradle/caches/modules-2 \
+            -type f \
+            -name "aapt2-9.3.0-15703166-windows.jar" \
+            | head -n 1)
+
+          if [ -z "$AAPT2_FILE" ]; then
+            echo "ERROR: Windows AAPT2 JAR was not downloaded."
+            exit 1
+          fi
+
+          echo "Windows AAPT2 found:"
+          echo "$AAPT2_FILE"
+
+          ls -lh "$AAPT2_FILE"
 
       - name: Package complete cache
         run: |
