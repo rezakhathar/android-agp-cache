@@ -187,11 +187,16 @@ jobs:
               exit $LASTEXITCODE
           }
 
-      - name: Verify required cache files
+       - name: Verify required cache files
         shell: powershell
         run: |
           $cache = "$env:USERPROFILE\.gradle\caches\modules-2"
 
+          Write-Host "========================================"
+          Write-Host "VERIFYING GRADLE CACHE"
+          Write-Host "========================================"
+
+          Write-Host ""
           Write-Host "Checking Windows AAPT2..."
 
           $aapt2 = Get-ChildItem `
@@ -201,29 +206,11 @@ jobs:
             -ErrorAction SilentlyContinue
 
           if (!$aapt2) {
-              Write-Error "Windows AAPT2 NOT FOUND"
-              exit 1
+            throw "Windows AAPT2 NOT FOUND"
           }
 
-          Write-Host "Windows AAPT2:"
+          Write-Host "OK - Windows AAPT2 found:"
           $aapt2 | Select-Object FullName, Length
-
-          Write-Host ""
-          Write-Host "Checking Kotlin stdlib common..."
-
-          $kotlinCommon = Get-ChildItem `
-            "$cache" `
-            -Recurse `
-            -Filter "kotlin-stdlib-common-2.2.10.jar" `
-            -ErrorAction SilentlyContinue
-
-          if (!$kotlinCommon) {
-              Write-Error "kotlin-stdlib-common 2.2.10 NOT FOUND"
-              exit 1
-          }
-
-          Write-Host "Kotlin common:"
-          $kotlinCommon | Select-Object FullName, Length
 
           Write-Host ""
           Write-Host "Checking Kotlin stdlib..."
@@ -235,15 +222,48 @@ jobs:
             -ErrorAction SilentlyContinue
 
           if (!$kotlin) {
-              Write-Error "kotlin-stdlib 2.2.10 NOT FOUND"
-              exit 1
+            throw "kotlin-stdlib 2.2.10 NOT FOUND"
           }
 
-          Write-Host "Kotlin stdlib:"
+          Write-Host "OK - Kotlin stdlib found:"
           $kotlin | Select-Object FullName, Length
 
           Write-Host ""
-          Write-Host "ALL REQUIRED FILES FOUND."
+          Write-Host "Checking Kotlin stdlib-common metadata..."
+
+          $kotlinCommonPom = Get-ChildItem `
+            "$cache" `
+            -Recurse `
+            -Filter "kotlin-stdlib-common-2.2.10.pom" `
+            -ErrorAction SilentlyContinue
+
+          if (!$kotlinCommonPom) {
+            throw "kotlin-stdlib-common 2.2.10 POM NOT FOUND"
+          }
+
+          Write-Host "OK - Kotlin stdlib-common POM found:"
+          $kotlinCommonPom | Select-Object FullName, Length
+
+          Write-Host ""
+          Write-Host "Checking Android Gradle Plugin..."
+
+          $agp = Get-ChildItem `
+            "$cache" `
+            -Recurse `
+            -Filter "gradle-9.3.0.pom" `
+            -ErrorAction SilentlyContinue
+
+          if (!$agp) {
+            throw "Android Gradle Plugin 9.3.0 metadata NOT FOUND"
+          }
+
+          Write-Host "OK - AGP 9.3.0 metadata found:"
+          $agp | Select-Object FullName, Length
+
+          Write-Host ""
+          Write-Host "========================================"
+          Write-Host "ALL REQUIRED CACHE FILES FOUND"
+          Write-Host "========================================"   
 
       - name: Create cache archive
         shell: powershell
