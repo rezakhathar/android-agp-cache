@@ -187,7 +187,7 @@ jobs:
               exit $LASTEXITCODE
           }
 
-       - name: Verify required cache files
+          - name: Verify required cache files
         shell: powershell
         run: |
           $cache = "$env:USERPROFILE\.gradle\caches\modules-2"
@@ -263,8 +263,8 @@ jobs:
           Write-Host ""
           Write-Host "========================================"
           Write-Host "ALL REQUIRED CACHE FILES FOUND"
-          Write-Host "========================================"   
-
+          Write-Host "========================================"
+          
       - name: Create cache archive
         shell: powershell
         run: |
