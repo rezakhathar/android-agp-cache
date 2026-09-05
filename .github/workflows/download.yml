@@ -8,400 +8,264 @@ jobs:
     runs-on: windows-latest
 
     steps:
-
-      # ============================================================
-      # JDK 17
-      # ============================================================
       - name: Setup JDK 17
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
-      # ============================================================
-      # Android SDK
-      # ============================================================
       - name: Setup Android SDK
         shell: powershell
         run: |
           $sdkmanager = "$env:ANDROID_HOME\cmdline-tools\latest\bin\sdkmanager.bat"
 
-          if (!(Test-Path $sdkmanager)) {
-              Write-Error "sdkmanager not found: $sdkmanager"
-              exit 1
-          }
-
           & $sdkmanager --sdk_root="$env:ANDROID_HOME" `
-              "platforms;android-34" `
-              "build-tools;36.0.0"
+            "platforms;android-34" `
+            "build-tools;36.0.0"
 
-          if ($LASTEXITCODE -ne 0) {
-              exit $LASTEXITCODE
-          }
-
-      # ============================================================
-      # Download Gradle 9.5.0
-      # ============================================================
-      - name: Setup Gradle 9.5.0
+      - name: Download Gradle 9.5.0
         shell: powershell
         run: |
           $url = "https://services.gradle.org/distributions/gradle-9.5.0-bin.zip"
-          $zip = "$env:RUNNER_TEMP\gradle-9.5.0.zip"
-          $dest = "$env:RUNNER_TEMP"
+          $zip = "$env:RUNNER_TEMP\gradle.zip"
 
-          Invoke-WebRequest `
-              -Uri $url `
-              -OutFile $zip
+          Invoke-WebRequest -Uri $url -OutFile $zip
 
           Expand-Archive `
-              -Path $zip `
-              -DestinationPath $dest `
-              -Force
+            -Path $zip `
+            -DestinationPath $env:RUNNER_TEMP `
+            -Force
 
-          & "$dest\gradle-9.5.0\bin\gradle.bat" --version
+          & "$env:RUNNER_TEMP\gradle-9.5.0\bin\gradle.bat" --version
 
-      # ============================================================
-      # Create REAL Android project
-      # ============================================================
       - name: Create resolver project
         shell: powershell
         run: |
-
           $root = "$env:GITHUB_WORKSPACE\resolver"
 
           New-Item -ItemType Directory -Force `
-              "$root\app\src\main\java\com\example\resolver" | Out-Null
+            "$root\app\src\main\java\com\example\resolver" | Out-Null
 
           New-Item -ItemType Directory -Force `
-              "$root\app\src\main\res\values" | Out-Null
+            "$root\app\src\main\res\values" | Out-Null
 
-          # --------------------------------------------------------
-          # settings.gradle
-          # --------------------------------------------------------
           @'
-pluginManagement {
-    repositories {
-        google()
-        mavenCentral()
-        gradlePluginPortal()
-    }
-}
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
 
-dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
 
-    repositories {
-        google()
-        mavenCentral()
-    }
-}
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
 
-rootProject.name = "resolver"
+          rootProject.name = "resolver"
+          include(":app")
+          '@ | Set-Content "$root\settings.gradle"
 
-include(":app")
-'@ | Set-Content "$root\settings.gradle" -Encoding UTF8
-
-
-          # --------------------------------------------------------
-          # Root build.gradle
-          # --------------------------------------------------------
           @'
-plugins {
-    id 'com.android.application' version '9.3.0' apply false
-}
-'@ | Set-Content "$root\build.gradle" -Encoding UTF8
+          plugins {
+              id 'com.android.application' version '9.3.0' apply false
+          }
+          '@ | Set-Content "$root\build.gradle"
 
-
-          # --------------------------------------------------------
-          # app/build.gradle
-          # EXACT project dependencies
-          # --------------------------------------------------------
           @'
-plugins {
-    id 'com.android.application'
-}
+          plugins {
+              id 'com.android.application'
+          }
 
-android {
-    namespace "com.example.resolver"
+          android {
+              namespace "com.example.resolver"
+              compileSdk 34
 
-    compileSdk 34
+              defaultConfig {
+                  applicationId "com.example.resolver"
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0"
+              }
 
-    defaultConfig {
-        applicationId "com.example.resolver"
+              buildTypes {
+                  release {
+                      minifyEnabled false
 
-        minSdk 24
-        targetSdk 34
+                      proguardFiles getDefaultProguardFile(
+                          'proguard-android-optimize.txt'
+                      ),
+                      'proguard-rules.pro'
+                  }
+              }
 
-        versionCode 1
-        versionName "1.0"
-    }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
 
-    buildTypes {
-        release {
-            minifyEnabled false
+          dependencies {
+              implementation 'androidx.appcompat:appcompat:1.6.1'
+              implementation 'com.google.android.material:material:1.10.0'
+              implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+              implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+          }
+          '@ | Set-Content "$root\app\build.gradle"
 
-            proguardFiles getDefaultProguardFile(
-                'proguard-android-optimize.txt'
-            ),
-            'proguard-rules.pro'
-        }
-    }
-
-    compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
-    }
-}
-
-dependencies {
-
-    implementation 'androidx.appcompat:appcompat:1.6.1'
-
-    implementation 'com.google.android.material:material:1.10.0'
-
-    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
-
-    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
-}
-'@ | Set-Content "$root\app\build.gradle" -Encoding UTF8
-
-
-          # --------------------------------------------------------
-          # Manifest
-          # --------------------------------------------------------
           @'
-<?xml version="1.0" encoding="utf-8"?>
+          <?xml version="1.0" encoding="utf-8"?>
 
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <application
-        android:label="Resolver"
-        android:theme="@style/AppTheme">
+              <application
+                  android:label="Resolver"
+                  android:theme="@style/AppTheme">
 
-        <activity
-            android:name=".MainActivity"
-            android:exported="true">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
 
-            <intent-filter>
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
 
-                <action android:name="android.intent.action.MAIN" />
+                  </activity>
 
-                <category
-                    android:name="android.intent.category.LAUNCHER" />
+              </application>
 
-            </intent-filter>
+          </manifest>
+          '@ | Set-Content "$root\app\src\main\AndroidManifest.xml"
 
-        </activity>
-
-    </application>
-
-</manifest>
-'@ | Set-Content `
-    "$root\app\src\main\AndroidManifest.xml" `
-    -Encoding UTF8
-
-
-          # --------------------------------------------------------
-          # styles.xml
-          # --------------------------------------------------------
           @'
-<?xml version="1.0" encoding="utf-8"?>
+          <?xml version="1.0" encoding="utf-8"?>
 
-<resources>
+          <resources>
 
-    <style
-        name="AppTheme"
-        parent="android:style/Theme.Material.Light.NoActionBar">
+              <style
+                  name="AppTheme"
+                  parent="android:style/Theme.Material.Light.NoActionBar" />
 
-    </style>
+          </resources>
+          '@ | Set-Content "$root\app\src\main\res\values\styles.xml"
 
-</resources>
-'@ | Set-Content `
-    "$root\app\src\main\res\values\styles.xml" `
-    -Encoding UTF8
-
-
-          # --------------------------------------------------------
-          # MainActivity
-          # --------------------------------------------------------
           @'
-package com.example.resolver;
+          package com.example.resolver;
 
-import android.app.Activity;
-import android.os.Bundle;
+          import android.app.Activity;
+          import android.os.Bundle;
 
-public class MainActivity extends Activity {
+          public class MainActivity extends Activity {
 
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-    }
-}
-'@ | Set-Content `
-    "$root\app\src\main\java\com\example\resolver\MainActivity.java" `
-    -Encoding UTF8
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+              }
+          }
+          '@ | Set-Content `
+            "$root\app\src\main\java\com\example\resolver\MainActivity.java"
 
-
-          Write-Host ""
-          Write-Host "========================================"
-          Write-Host "Resolver project created"
-          Write-Host "========================================"
-
-      # ============================================================
-      # ACTUAL ANDROID BUILD
-      # ============================================================
-      - name: Resolve all dependencies
+      - name: Build resolver
         shell: powershell
         run: |
-
-          $gradle = "$env:RUNNER_TEMP\gradle-9.5.0\bin\gradle.bat"
-
           Set-Location "$env:GITHUB_WORKSPACE\resolver"
 
-          & $gradle `
-              assembleDebug `
-              --refresh-dependencies `
-              --no-daemon `
-              --stacktrace
+          & "$env:RUNNER_TEMP\gradle-9.5.0\bin\gradle.bat" `
+            assembleDebug `
+            --refresh-dependencies `
+            --no-daemon `
+            --stacktrace
 
           if ($LASTEXITCODE -ne 0) {
-              Write-Error "Android build failed."
               exit $LASTEXITCODE
           }
 
-      # ============================================================
-      # VERIFY IMPORTANT DEPENDENCIES
-      # ============================================================
-      - name: Verify cache
+      - name: Verify required cache files
         shell: powershell
         run: |
-
           $cache = "$env:USERPROFILE\.gradle\caches\modules-2"
 
-          Write-Host ""
-          Write-Host "========================================"
-          Write-Host "CHECK WINDOWS AAPT2"
-          Write-Host "========================================"
+          Write-Host "Checking Windows AAPT2..."
 
           $aapt2 = Get-ChildItem `
-              "$cache" `
-              -Recurse `
-              -Filter "aapt2-9.3.0-15703166-windows.jar" `
-              -ErrorAction SilentlyContinue
+            "$cache" `
+            -Recurse `
+            -Filter "aapt2-9.3.0-15703166-windows.jar" `
+            -ErrorAction SilentlyContinue
 
           if (!$aapt2) {
               Write-Error "Windows AAPT2 NOT FOUND"
               exit 1
           }
 
+          Write-Host "Windows AAPT2:"
           $aapt2 | Select-Object FullName, Length
 
-
           Write-Host ""
-          Write-Host "========================================"
-          Write-Host "CHECK KOTLIN COMMON"
-          Write-Host "========================================"
+          Write-Host "Checking Kotlin stdlib common..."
 
           $kotlinCommon = Get-ChildItem `
-              "$cache" `
-              -Recurse `
-              -Filter "kotlin-stdlib-common-2.2.10.jar" `
-              -ErrorAction SilentlyContinue
+            "$cache" `
+            -Recurse `
+            -Filter "kotlin-stdlib-common-2.2.10.jar" `
+            -ErrorAction SilentlyContinue
 
           if (!$kotlinCommon) {
               Write-Error "kotlin-stdlib-common 2.2.10 NOT FOUND"
               exit 1
           }
 
+          Write-Host "Kotlin common:"
           $kotlinCommon | Select-Object FullName, Length
 
-
           Write-Host ""
-          Write-Host "========================================"
-          Write-Host "CHECK KOTLIN STDLIB"
-          Write-Host "========================================"
+          Write-Host "Checking Kotlin stdlib..."
 
           $kotlin = Get-ChildItem `
-              "$cache" `
-              -Recurse `
-              -Filter "kotlin-stdlib-2.2.10.jar" `
-              -ErrorAction SilentlyContinue
+            "$cache" `
+            -Recurse `
+            -Filter "kotlin-stdlib-2.2.10.jar" `
+            -ErrorAction SilentlyContinue
 
           if (!$kotlin) {
               Write-Error "kotlin-stdlib 2.2.10 NOT FOUND"
               exit 1
           }
 
+          Write-Host "Kotlin stdlib:"
           $kotlin | Select-Object FullName, Length
 
-
           Write-Host ""
-          Write-Host "========================================"
-          Write-Host "CHECK AGP"
-          Write-Host "========================================"
+          Write-Host "ALL REQUIRED FILES FOUND."
 
-          $agp = Get-ChildItem `
-              "$cache" `
-              -Recurse `
-              -Filter "gradle-9.3.0.jar" `
-              -ErrorAction SilentlyContinue
-
-          if (!$agp) {
-              Write-Error "AGP 9.3.0 NOT FOUND"
-              exit 1
-          }
-
-          $agp | Select-Object FullName, Length
-
-
-          Write-Host ""
-          Write-Host "========================================"
-          Write-Host "ALL REQUIRED FILES VERIFIED"
-          Write-Host "========================================"
-
-      # ============================================================
-      # PACKAGE COMPLETE CACHE
-      # ============================================================
       - name: Create cache archive
         shell: powershell
         run: |
-
           $cacheRoot = "$env:USERPROFILE\.gradle\caches"
-
-          $output = `
-              "$env:GITHUB_WORKSPACE\agp-9.3.0-complete-cache-windows.tar.gz"
-
-          if (Test-Path $output) {
-              Remove-Item $output -Force
-          }
+          $output = "$env:GITHUB_WORKSPACE\agp-9.3.0-complete-cache-windows.tar.gz"
 
           tar.exe `
-              -czf "$output" `
-              -C "$cacheRoot" `
-              modules-2
+            -czf "$output" `
+            -C "$cacheRoot" `
+            modules-2
 
           if (!(Test-Path $output)) {
               Write-Error "Cache archive was not created."
               exit 1
           }
 
-          $size = (Get-Item $output).Length
-
-          Write-Host ""
-          Write-Host "========================================"
-          Write-Host "CACHE CREATED"
-          Write-Host "========================================"
-
-          Write-Host "File:"
+          Write-Host "Archive created:"
           Write-Host $output
 
-          Write-Host ""
-          Write-Host "Size:"
-          Write-Host $size
+          Get-Item $output | Select-Object Name, Length
 
-      # ============================================================
-      # UPLOAD
-      # ============================================================
       - name: Upload cache
         uses: actions/upload-artifact@v4
         with:
