@@ -1,160 +1,366 @@
-name: Download AGP 9.3.0 Complete Cache
+name: Build Windows Gradle Cache
 
 on:
   workflow_dispatch:
 
 jobs:
-  download:
-    runs-on: ubuntu-latest
+  build-cache:
+    runs-on: windows-latest
 
     steps:
-      - name: Setup Java 17
+
+      # ---------------------------------------------------------
+      # Java 17
+      # ---------------------------------------------------------
+      - name: Setup JDK 17
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
+      # ---------------------------------------------------------
+      # Download Gradle 9.5.0
+      # ---------------------------------------------------------
       - name: Download Gradle 9.5.0
+        shell: powershell
         run: |
-          curl -L --fail \
-            -o gradle-9.5.0-bin.zip \
-            https://services.gradle.org/distributions/gradle-9.5.0-bin.zip
+          $url = "https://services.gradle.org/distributions/gradle-9.5.0-bin.zip"
+          $zip = "$env:RUNNER_TEMP\gradle-9.5.0-bin.zip"
+          $dir = "$env:RUNNER_TEMP\gradle"
 
-          unzip -q gradle-9.5.0-bin.zip
+          Invoke-WebRequest -Uri $url -OutFile $zip
 
-      - name: Create resolver project
+          if (Test-Path $dir) {
+              Remove-Item $dir -Recurse -Force
+          }
+
+          Expand-Archive -Path $zip -DestinationPath $env:RUNNER_TEMP
+
+          $gradleBin = "$env:RUNNER_TEMP\gradle-9.5.0\bin"
+
+          $gradleBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+          & "$gradleBin\gradle.bat" --version
+
+      # ---------------------------------------------------------
+      # Android SDK
+      # ---------------------------------------------------------
+      - name: Install Android SDK packages
+        shell: powershell
         run: |
-          mkdir -p resolver
+          $sdkmanager = "$env:ANDROID_HOME\cmdline-tools\latest\bin\sdkmanager.bat"
 
-          cat > resolver/settings.gradle <<'EOF'
-          pluginManagement {
-              repositories {
-                  google()
-                  mavenCentral()
-                  gradlePluginPortal()
-              }
+          if (!(Test-Path $sdkmanager)) {
+              Write-Error "sdkmanager not found: $sdkmanager"
+              exit 1
           }
 
-          dependencyResolutionManagement {
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-          }
+          & $sdkmanager --sdk_root="$env:ANDROID_HOME" `
+              "platforms;android-34" `
+              "build-tools;36.0.0"
 
-          rootProject.name = 'resolver'
-          EOF
+          $env:ANDROID_HOME | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-          cat > resolver/build.gradle <<'EOF'
-          plugins {
-              id 'com.android.application' version '9.3.0' apply false
-          }
-
-          configurations {
-              androidDependencies
-          }
-
-          dependencies {
-
-              // AAPT2
-              androidDependencies 'com.android.tools.build:aapt2:9.3.0-15703166'
-              androidDependencies 'com.android.tools.build:aapt2:9.3.0-15703166:windows@jar'
-              androidDependencies 'com.android.tools.build:aapt2-proto:9.3.0-15703166'
-
-              // Kotlin
-              androidDependencies 'org.jetbrains.kotlin:kotlin-stdlib:2.2.10'
-              androidDependencies 'org.jetbrains.kotlin:kotlin-stdlib-common:2.2.10'
-
-              // Project dependencies
-              androidDependencies 'androidx.appcompat:appcompat:1.6.1'
-              androidDependencies 'com.google.android.material:material:1.10.0'
-              androidDependencies 'androidx.constraintlayout:constraintlayout:2.1.4'
-              androidDependencies 'com.squareup.okhttp3:okhttp:4.12.0'
-          }
-
-          tasks.register('resolveAll') {
-              doLast {
-                  configurations.androidDependencies.resolve()
-                  println 'All Android dependencies resolved.'
-              }
-          }
-          EOF
-
-      - name: Resolve everything
-        working-directory: resolver
+      # ---------------------------------------------------------
+      # Create a REAL Android resolver project
+      # Same AGP + same dependencies as GamaBascolApp
+      # ---------------------------------------------------------
+      - name: Create Android resolver project
+        shell: powershell
         run: |
-          ../gradle-9.5.0/bin/gradle help \
-            --refresh-dependencies \
-            --no-daemon \
+
+          $root = "$env:GITHUB_WORKSPACE\resolver"
+
+          New-Item -ItemType Directory -Force "$root\app\src\main\java\com\example\resolver" | Out-Null
+          New-Item -ItemType Directory -Force "$root\app\src\main\res\values" | Out-Null
+
+          # settings.gradle
+          @'
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = "resolver"
+
+include(":app")
+'@ | Set-Content "$root\settings.gradle" -Encoding UTF8
+
+
+          # Root build.gradle
+          @'
+plugins {
+    id 'com.android.application' version '9.3.0' apply false
+}
+'@ | Set-Content "$root\build.gradle" -Encoding UTF8
+
+
+          # app/build.gradle
+          @'
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace "com.example.resolver"
+
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.example.resolver"
+
+        minSdk 24
+        targetSdk 34
+
+        versionCode 1
+        versionName "1.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+
+            proguardFiles getDefaultProguardFile(
+                    'proguard-android-optimize.txt'
+            ),
+            'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.10.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+}
+'@ | Set-Content "$root\app\build.gradle" -Encoding UTF8
+
+
+          # AndroidManifest.xml
+          @'
+<?xml version="1.0" encoding="utf-8"?>
+
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:label="Resolver"
+        android:theme="@style/AppTheme">
+
+    </application>
+
+</manifest>
+'@ | Set-Content "$root\app\src\main\AndroidManifest.xml" -Encoding UTF8
+
+
+          # styles.xml
+          @'
+<?xml version="1.0" encoding="utf-8"?>
+
+<resources>
+
+    <style
+        name="AppTheme"
+        parent="android:style/Theme.Material.Light.NoActionBar">
+
+    </style>
+
+</resources>
+'@ | Set-Content "$root\app\src\main\res\values\styles.xml" -Encoding UTF8
+
+
+          # MainActivity.java
+          @'
+package com.example.resolver;
+
+import android.app.Activity;
+import android.os.Bundle;
+
+public class MainActivity extends Activity {
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+    }
+}
+'@ | Set-Content "$root\app\src\main\java\com\example\resolver\MainActivity.java" -Encoding UTF8
+
+
+          # Add activity to manifest
+          @'
+<?xml version="1.0" encoding="utf-8"?>
+
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:label="Resolver"
+        android:theme="@style/AppTheme">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+
+            <intent-filter>
+
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+
+            </intent-filter>
+
+        </activity>
+
+    </application>
+
+</manifest>
+'@ | Set-Content "$root\app\src\main\AndroidManifest.xml" -Encoding UTF8
+
+
+          Write-Host ""
+          Write-Host "Resolver project created:"
+          Write-Host $root
+
+
+      # ---------------------------------------------------------
+      # ACTUAL BUILD
+      # This is the important part.
+      # Gradle must resolve everything needed by a real Android build.
+      # ---------------------------------------------------------
+      - name: Resolve all Android dependencies
+        shell: powershell
+        run: |
+
+          $gradle = "$env:RUNNER_TEMP\gradle-9.5.0\bin\gradle.bat"
+
+          & $gradle `
+            assembleDebug `
+            --refresh-dependencies `
+            --no-daemon `
             --stacktrace
 
-          ../gradle-9.5.0/bin/gradle resolveAll \
-            --refresh-dependencies \
-            --no-daemon \
-            --stacktrace
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "Android resolver build failed."
+              exit $LASTEXITCODE
+          }
 
-      - name: Verify Windows AAPT2
+
+      # ---------------------------------------------------------
+      # Verify critical files
+      # ---------------------------------------------------------
+      - name: Verify Windows AAPT2 and Kotlin
+        shell: powershell
         run: |
-          AAPT2_FILE=$(find ~/.gradle/caches/modules-2 \
-            -type f \
-            -name "aapt2-9.3.0-15703166-windows.jar" \
-            | head -n 1)
 
-          if [ -z "$AAPT2_FILE" ]; then
-            echo "ERROR: Windows AAPT2 was not downloaded."
-            exit 1
-          fi
+          $cache = "$env:USERPROFILE\.gradle\caches\modules-2"
 
-          echo "Windows AAPT2 found:"
-          echo "$AAPT2_FILE"
-          ls -lh "$AAPT2_FILE"
+          Write-Host ""
+          Write-Host "========== WINDOWS AAPT2 =========="
 
-      - name: Verify Kotlin
+          $aapt2 = Get-ChildItem `
+            "$cache" `
+            -Recurse `
+            -Filter "aapt2-9.3.0-15703166-windows.jar" `
+            -ErrorAction SilentlyContinue
+
+          if (!$aapt2) {
+              Write-Error "Windows AAPT2 was NOT found."
+              exit 1
+          }
+
+          $aapt2 | Select-Object FullName, Length
+
+
+          Write-Host ""
+          Write-Host "========== KOTLIN STDLIB COMMON =========="
+
+          $kotlinCommon = Get-ChildItem `
+            "$cache" `
+            -Recurse `
+            -Filter "kotlin-stdlib-common-2.2.10.jar" `
+            -ErrorAction SilentlyContinue
+
+          if (!$kotlinCommon) {
+              Write-Error "kotlin-stdlib-common 2.2.10 was NOT found."
+              exit 1
+          }
+
+          $kotlinCommon | Select-Object FullName, Length
+
+
+          Write-Host ""
+          Write-Host "========== KOTLIN STDLIB =========="
+
+          $kotlin = Get-ChildItem `
+            "$cache" `
+            -Recurse `
+            -Filter "kotlin-stdlib-2.2.10.jar" `
+            -ErrorAction SilentlyContinue
+
+          if (!$kotlin) {
+              Write-Error "kotlin-stdlib 2.2.10 was NOT found."
+              exit 1
+          }
+
+          $kotlin | Select-Object FullName, Length
+
+
+          Write-Host ""
+          Write-Host "All critical dependencies verified successfully."
+
+
+      # ---------------------------------------------------------
+      # Package COMPLETE Gradle modules cache
+      # ---------------------------------------------------------
+      - name: Package complete Gradle cache
+        shell: powershell
         run: |
-          echo "===== Kotlin stdlib ====="
 
-          find ~/.gradle/caches/modules-2/files-2.1 \
-            -path "*org.jetbrains.kotlin/kotlin-stdlib/2.2.10*" \
-            -type f | sort
+          $cacheRoot = "$env:USERPROFILE\.gradle\caches"
 
-          echo ""
-          echo "===== Kotlin stdlib common ====="
+          $output = "$env:GITHUB_WORKSPACE\agp-9.3.0-complete-cache-windows.tar.gz"
 
-          KOTLIN_COMMON=$(find ~/.gradle/caches/modules-2/files-2.1 \
-            -path "*org.jetbrains.kotlin/kotlin-stdlib-common/2.2.10*" \
-            -type f \
-            | head -n 1)
+          if (Test-Path $output) {
+              Remove-Item $output -Force
+          }
 
-          if [ -z "$KOTLIN_COMMON" ]; then
-            echo "ERROR: kotlin-stdlib-common 2.2.10 was not downloaded."
-            exit 1
-          fi
+          tar.exe -czf $output -C $cacheRoot modules-2
 
-          echo "Kotlin stdlib common found:"
-          echo "$KOTLIN_COMMON"
-          ls -lh "$KOTLIN_COMMON"
+          if (!(Test-Path $output)) {
+              Write-Error "Cache archive was not created."
+              exit 1
+          }
 
-      - name: Show cache size
-        run: |
-          echo "===== CACHE FILE COUNT ====="
-          find ~/.gradle/caches/modules-2 -type f | wc -l
+          $size = (Get-Item $output).Length
 
-          echo ""
-          echo "===== CACHE SIZE ====="
-          du -sh ~/.gradle/caches/modules-2
+          Write-Host ""
+          Write-Host "Cache archive created:"
+          Write-Host $output
+          Write-Host "Size: $size bytes"
 
-      - name: Package complete cache
-        run: |
-          cd ~/.gradle/caches
 
-          tar -czf "$GITHUB_WORKSPACE/agp-9.3.0-complete-cache.tar.gz" \
-            modules-2
-
-          ls -lh "$GITHUB_WORKSPACE/agp-9.3.0-complete-cache.tar.gz"
-
-      - name: Upload complete cache
+      # ---------------------------------------------------------
+      # Upload artifact
+      # ---------------------------------------------------------
+      - name: Upload complete Windows cache
         uses: actions/upload-artifact@v4
         with:
-          name: agp-9.3.0-complete-cache
-          path: agp-9.3.0-complete-cache.tar.gz
-          retention-days: 7
+          name: agp-9.3.0-complete-cache-windows
+          path: agp-9.3.0-complete-cache-windows.tar.gz
+          if-no-files-found: error
