@@ -1,39 +1,160 @@
-PS D:\AndroidProjects\GamaBascolApp> .\gradlew.bat build --offline --no-daemon
-To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.5.0/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
-Daemon will be stopped at the end of the build
-Calculating task graph as no cached configuration is available for tasks: build
+name: Download AGP 9.3.0 Complete Cache
 
-1 problem was found storing the configuration cache.
-- Task `:app:processDebugNavigationResources` of type `com.android.build.gradle.internal.tasks.ProcessNavigationXmlTask`: error writing value of type 'org.gradle.api.internal.file.collections.DefaultConfigurableFileCollection'
+on:
+  workflow_dispatch:
 
-See the complete report at file:///D:/AndroidProjects/GamaBascolApp/build/reports/configuration-cache/334xlrfvw1yb1q1gqsb57jp5h/2ljkyxit2onato8si0s3hrqgg/configuration-cache-report.html
+jobs:
+  download:
+    runs-on: ubuntu-latest
 
-[Incubating] Problems report is available at: file:///D:/AndroidProjects/GamaBascolApp/build/reports/problems/problems-report.html
+    steps:
+      - name: Setup Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
 
-FAILURE: Build failed with an exception.
+      - name: Download Gradle 9.5.0
+        run: |
+          curl -L --fail \
+            -o gradle-9.5.0-bin.zip \
+            https://services.gradle.org/distributions/gradle-9.5.0-bin.zip
 
-* What went wrong:
-Configuration cache state could not be cached: field `__runtimeDependenciesNavigationFiles__` of task `:app:processDebugNavigationResources` of type `com.android.build.gradle.internal.tasks.ProcessNavigationXmlTask`: error writing value of type 'org.gradle.api.internal.file.collections.DefaultConfigurableFileCollection'
-> Could not resolve all files for configuration ':app:debugRuntimeClasspath'.
-   > Could not resolve org.jetbrains.kotlin:kotlin-stdlib-common:2.2.10.
-     Required by:
-         project ':app' > org.jetbrains.kotlin:kotlin-stdlib:2.2.10
-      > No cached version of org.jetbrains.kotlin:kotlin-stdlib-common:2.2.10 available for offline mode.
-      > No cached version of org.jetbrains.kotlin:kotlin-stdlib-common:2.2.10 available for offline mode.
-> There are 6 more failures with identical causes.
+          unzip -q gradle-9.5.0-bin.zip
 
-* Try:
-> Run with --stacktrace option to get the stack trace.
-> Run with --info or --debug option to get more log output.
-> Run with --scan to get full insights from a Build Scan (powered by Develocity).
-> Get more help at https://help.gradle.org.
+      - name: Create resolver project
+        run: |
+          mkdir -p resolver
 
-Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+          cat > resolver/settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
 
-You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+          dependencyResolutionManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
 
-For more on this, please refer to https://docs.gradle.org/9.5.0/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+          rootProject.name = 'resolver'
+          EOF
 
-BUILD FAILED in 15s
-Configuration cache entry discarded due to serialization error.
-PS D:\AndroidProjects\GamaBascolApp>
+          cat > resolver/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '9.3.0' apply false
+          }
+
+          configurations {
+              androidDependencies
+          }
+
+          dependencies {
+
+              // AAPT2
+              androidDependencies 'com.android.tools.build:aapt2:9.3.0-15703166'
+              androidDependencies 'com.android.tools.build:aapt2:9.3.0-15703166:windows@jar'
+              androidDependencies 'com.android.tools.build:aapt2-proto:9.3.0-15703166'
+
+              // Kotlin
+              androidDependencies 'org.jetbrains.kotlin:kotlin-stdlib:2.2.10'
+              androidDependencies 'org.jetbrains.kotlin:kotlin-stdlib-common:2.2.10'
+
+              // Project dependencies
+              androidDependencies 'androidx.appcompat:appcompat:1.6.1'
+              androidDependencies 'com.google.android.material:material:1.10.0'
+              androidDependencies 'androidx.constraintlayout:constraintlayout:2.1.4'
+              androidDependencies 'com.squareup.okhttp3:okhttp:4.12.0'
+          }
+
+          tasks.register('resolveAll') {
+              doLast {
+                  configurations.androidDependencies.resolve()
+                  println 'All Android dependencies resolved.'
+              }
+          }
+          EOF
+
+      - name: Resolve everything
+        working-directory: resolver
+        run: |
+          ../gradle-9.5.0/bin/gradle help \
+            --refresh-dependencies \
+            --no-daemon \
+            --stacktrace
+
+          ../gradle-9.5.0/bin/gradle resolveAll \
+            --refresh-dependencies \
+            --no-daemon \
+            --stacktrace
+
+      - name: Verify Windows AAPT2
+        run: |
+          AAPT2_FILE=$(find ~/.gradle/caches/modules-2 \
+            -type f \
+            -name "aapt2-9.3.0-15703166-windows.jar" \
+            | head -n 1)
+
+          if [ -z "$AAPT2_FILE" ]; then
+            echo "ERROR: Windows AAPT2 was not downloaded."
+            exit 1
+          fi
+
+          echo "Windows AAPT2 found:"
+          echo "$AAPT2_FILE"
+          ls -lh "$AAPT2_FILE"
+
+      - name: Verify Kotlin
+        run: |
+          echo "===== Kotlin stdlib ====="
+
+          find ~/.gradle/caches/modules-2/files-2.1 \
+            -path "*org.jetbrains.kotlin/kotlin-stdlib/2.2.10*" \
+            -type f | sort
+
+          echo ""
+          echo "===== Kotlin stdlib common ====="
+
+          KOTLIN_COMMON=$(find ~/.gradle/caches/modules-2/files-2.1 \
+            -path "*org.jetbrains.kotlin/kotlin-stdlib-common/2.2.10*" \
+            -type f \
+            | head -n 1)
+
+          if [ -z "$KOTLIN_COMMON" ]; then
+            echo "ERROR: kotlin-stdlib-common 2.2.10 was not downloaded."
+            exit 1
+          fi
+
+          echo "Kotlin stdlib common found:"
+          echo "$KOTLIN_COMMON"
+          ls -lh "$KOTLIN_COMMON"
+
+      - name: Show cache size
+        run: |
+          echo "===== CACHE FILE COUNT ====="
+          find ~/.gradle/caches/modules-2 -type f | wc -l
+
+          echo ""
+          echo "===== CACHE SIZE ====="
+          du -sh ~/.gradle/caches/modules-2
+
+      - name: Package complete cache
+        run: |
+          cd ~/.gradle/caches
+
+          tar -czf "$GITHUB_WORKSPACE/agp-9.3.0-complete-cache.tar.gz" \
+            modules-2
+
+          ls -lh "$GITHUB_WORKSPACE/agp-9.3.0-complete-cache.tar.gz"
+
+      - name: Upload complete cache
+        uses: actions/upload-artifact@v4
+        with:
+          name: agp-9.3.0-complete-cache
+          path: agp-9.3.0-complete-cache.tar.gz
+          retention-days: 7
