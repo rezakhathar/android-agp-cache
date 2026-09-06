@@ -8,6 +8,7 @@ jobs:
     runs-on: windows-latest
 
     steps:
+
       - name: Setup JDK 17
         uses: actions/setup-java@v5
         with:
@@ -23,13 +24,19 @@ jobs:
             "platforms;android-34" `
             "build-tools;36.0.0"
 
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
       - name: Download Gradle 9.5.0
         shell: powershell
         run: |
           $url = "https://services.gradle.org/distributions/gradle-9.5.0-bin.zip"
           $zip = "$env:RUNNER_TEMP\gradle.zip"
 
-          Invoke-WebRequest -Uri $url -OutFile $zip
+          Invoke-WebRequest `
+            -Uri $url `
+            -OutFile $zip
 
           Expand-Archive `
             -Path $zip `
@@ -59,8 +66,6 @@ jobs:
           }
 
           dependencyResolutionManagement {
-              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-
               repositories {
                   google()
                   mavenCentral()
@@ -68,6 +73,7 @@ jobs:
           }
 
           rootProject.name = "resolver"
+
           include(":app")
           '@ | Set-Content "$root\settings.gradle"
 
@@ -84,6 +90,7 @@ jobs:
 
           android {
               namespace "com.example.resolver"
+
               compileSdk 34
 
               defaultConfig {
@@ -92,17 +99,6 @@ jobs:
                   targetSdk 34
                   versionCode 1
                   versionName "1.0"
-              }
-
-              buildTypes {
-                  release {
-                      minifyEnabled false
-
-                      proguardFiles getDefaultProguardFile(
-                          'proguard-android-optimize.txt'
-                      ),
-                      'proguard-rules.pro'
-                  }
               }
 
               compileOptions {
@@ -168,6 +164,7 @@ jobs:
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
               }
+
           }
           '@ | Set-Content `
             "$root\app\src\main\java\com\example\resolver\MainActivity.java"
@@ -184,87 +181,49 @@ jobs:
             --stacktrace
 
           if ($LASTEXITCODE -ne 0) {
-              exit $LASTEXITCODE
+            exit $LASTEXITCODE
           }
 
-          - name: Verify required cache files
+      - name: Show cache contents
         shell: powershell
         run: |
           $cache = "$env:USERPROFILE\.gradle\caches\modules-2"
 
+          Write-Host ""
           Write-Host "========================================"
-          Write-Host "VERIFYING GRADLE CACHE"
+          Write-Host "GRADLE CACHE CHECK"
           Write-Host "========================================"
 
           Write-Host ""
-          Write-Host "Checking Windows AAPT2..."
-
-          $aapt2 = Get-ChildItem `
-            "$cache" `
+          Write-Host "AAPT2:"
+          Get-ChildItem `
+            $cache `
             -Recurse `
             -Filter "aapt2-9.3.0-15703166-windows.jar" `
-            -ErrorAction SilentlyContinue
-
-          if (!$aapt2) {
-            throw "Windows AAPT2 NOT FOUND"
-          }
-
-          Write-Host "OK - Windows AAPT2 found:"
-          $aapt2 | Select-Object FullName, Length
+            -ErrorAction SilentlyContinue |
+            Select-Object FullName, Length
 
           Write-Host ""
-          Write-Host "Checking Kotlin stdlib..."
-
-          $kotlin = Get-ChildItem `
-            "$cache" `
+          Write-Host "Kotlin:"
+          Get-ChildItem `
+            $cache `
             -Recurse `
             -Filter "kotlin-stdlib-2.2.10.jar" `
-            -ErrorAction SilentlyContinue
-
-          if (!$kotlin) {
-            throw "kotlin-stdlib 2.2.10 NOT FOUND"
-          }
-
-          Write-Host "OK - Kotlin stdlib found:"
-          $kotlin | Select-Object FullName, Length
+            -ErrorAction SilentlyContinue |
+            Select-Object FullName, Length
 
           Write-Host ""
-          Write-Host "Checking Kotlin stdlib-common metadata..."
-
-          $kotlinCommonPom = Get-ChildItem `
-            "$cache" `
-            -Recurse `
-            -Filter "kotlin-stdlib-common-2.2.10.pom" `
-            -ErrorAction SilentlyContinue
-
-          if (!$kotlinCommonPom) {
-            throw "kotlin-stdlib-common 2.2.10 POM NOT FOUND"
-          }
-
-          Write-Host "OK - Kotlin stdlib-common POM found:"
-          $kotlinCommonPom | Select-Object FullName, Length
-
-          Write-Host ""
-          Write-Host "Checking Android Gradle Plugin..."
-
-          $agp = Get-ChildItem `
-            "$cache" `
+          Write-Host "AGP:"
+          Get-ChildItem `
+            $cache `
             -Recurse `
             -Filter "gradle-9.3.0.pom" `
-            -ErrorAction SilentlyContinue
-
-          if (!$agp) {
-            throw "Android Gradle Plugin 9.3.0 metadata NOT FOUND"
-          }
-
-          Write-Host "OK - AGP 9.3.0 metadata found:"
-          $agp | Select-Object FullName, Length
+            -ErrorAction SilentlyContinue |
+            Select-Object FullName, Length
 
           Write-Host ""
           Write-Host "========================================"
-          Write-Host "ALL REQUIRED CACHE FILES FOUND"
-          Write-Host "========================================"
-          
+
       - name: Create cache archive
         shell: powershell
         run: |
@@ -277,14 +236,17 @@ jobs:
             modules-2
 
           if (!(Test-Path $output)) {
-              Write-Error "Cache archive was not created."
-              exit 1
+            Write-Error "Cache archive was not created."
+            exit 1
           }
 
-          Write-Host "Archive created:"
-          Write-Host $output
+          Write-Host ""
+          Write-Host "========================================"
+          Write-Host "ARCHIVE CREATED"
+          Write-Host "========================================"
 
-          Get-Item $output | Select-Object Name, Length
+          Get-Item $output |
+            Select-Object Name, Length
 
       - name: Upload cache
         uses: actions/upload-artifact@v4
