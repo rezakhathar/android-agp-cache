@@ -1,256 +1,67 @@
-name: Build Windows Gradle Cache
+name: Download Full Project Gradle Cache
 
 on:
   workflow_dispatch:
 
 jobs:
-  build-cache:
-    runs-on: windows-latest
+  cache:
+    runs-on: ubuntu-latest
 
     steps:
 
-      - name: Setup JDK 17
+      - name: Checkout project
+        uses: actions/checkout@v4
+
+
+      - name: Setup Java 17
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
+
       - name: Setup Android SDK
-        shell: powershell
+        uses: android-actions/setup-android@v3
+
+
+      - name: Download Gradle
         run: |
-          $sdkmanager = "$env:ANDROID_HOME\cmdline-tools\latest\bin\sdkmanager.bat"
+          curl -L -o gradle.zip https://services.gradle.org/distributions/gradle-9.5.0-bin.zip
+          unzip -q gradle.zip
 
-          & $sdkmanager --sdk_root="$env:ANDROID_HOME" `
-            "platforms;android-34" `
-            "build-tools;36.0.0"
 
-          if ($LASTEXITCODE -ne 0) {
-            exit $LASTEXITCODE
-          }
-
-      - name: Download Gradle 9.5.0
-        shell: powershell
+      - name: Resolve REAL project dependencies
         run: |
-          $url = "https://services.gradle.org/distributions/gradle-9.5.0-bin.zip"
-          $zip = "$env:RUNNER_TEMP\gradle.zip"
+          chmod +x gradle-9.5.0/bin/gradle
 
-          Invoke-WebRequest `
-            -Uri $url `
-            -OutFile $zip
+          ./gradle-9.5.0/bin/gradle \
+          build \
+          --refresh-dependencies \
+          --no-daemon \
+          --stacktrace
 
-          Expand-Archive `
-            -Path $zip `
-            -DestinationPath $env:RUNNER_TEMP `
-            -Force
 
-          & "$env:RUNNER_TEMP\gradle-9.5.0\bin\gradle.bat" --version
-
-      - name: Create resolver project
-        shell: powershell
+      - name: Verify Kotlin
         run: |
-          $root = "$env:GITHUB_WORKSPACE\resolver"
 
-          New-Item -ItemType Directory -Force `
-            "$root\app\src\main\java\com\example\resolver" | Out-Null
+          find ~/.gradle/caches/modules-2/files-2.1 \
+          -name "*kotlin-stdlib-common*" || true
 
-          New-Item -ItemType Directory -Force `
-            "$root\app\src\main\res\values" | Out-Null
 
-          @'
-          pluginManagement {
-              repositories {
-                  google()
-                  mavenCentral()
-                  gradlePluginPortal()
-              }
-          }
-
-          dependencyResolutionManagement {
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-          }
-
-          rootProject.name = "resolver"
-
-          include(":app")
-          '@ | Set-Content "$root\settings.gradle"
-
-          @'
-          plugins {
-              id 'com.android.application' version '9.3.0' apply false
-          }
-          '@ | Set-Content "$root\build.gradle"
-
-          @'
-          plugins {
-              id 'com.android.application'
-          }
-
-          android {
-              namespace "com.example.resolver"
-
-              compileSdk 34
-
-              defaultConfig {
-                  applicationId "com.example.resolver"
-                  minSdk 24
-                  targetSdk 34
-                  versionCode 1
-                  versionName "1.0"
-              }
-
-              compileOptions {
-                  sourceCompatibility JavaVersion.VERSION_17
-                  targetCompatibility JavaVersion.VERSION_17
-              }
-          }
-
-          dependencies {
-              implementation 'androidx.appcompat:appcompat:1.6.1'
-              implementation 'com.google.android.material:material:1.10.0'
-              implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
-              implementation 'com.squareup.okhttp3:okhttp:4.12.0'
-          }
-          '@ | Set-Content "$root\app\build.gradle"
-
-          @'
-          <?xml version="1.0" encoding="utf-8"?>
-
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-
-              <application
-                  android:label="Resolver"
-                  android:theme="@style/AppTheme">
-
-                  <activity
-                      android:name=".MainActivity"
-                      android:exported="true">
-
-                      <intent-filter>
-                          <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.category.LAUNCHER" />
-                      </intent-filter>
-
-                  </activity>
-
-              </application>
-
-          </manifest>
-          '@ | Set-Content "$root\app\src\main\AndroidManifest.xml"
-
-          @'
-          <?xml version="1.0" encoding="utf-8"?>
-
-          <resources>
-
-              <style
-                  name="AppTheme"
-                  parent="android:style/Theme.Material.Light.NoActionBar" />
-
-          </resources>
-          '@ | Set-Content "$root\app\src\main\res\values\styles.xml"
-
-          @'
-          package com.example.resolver;
-
-          import android.app.Activity;
-          import android.os.Bundle;
-
-          public class MainActivity extends Activity {
-
-              @Override
-              protected void onCreate(Bundle savedInstanceState) {
-                  super.onCreate(savedInstanceState);
-              }
-
-          }
-          '@ | Set-Content `
-            "$root\app\src\main\java\com\example\resolver\MainActivity.java"
-
-      - name: Build resolver
-        shell: powershell
+      - name: Package cache
         run: |
-          Set-Location "$env:GITHUB_WORKSPACE\resolver"
 
-          & "$env:RUNNER_TEMP\gradle-9.5.0\bin\gradle.bat" `
-            assembleDebug `
-            --refresh-dependencies `
-            --no-daemon `
-            --stacktrace
+          cd ~/.gradle/caches
 
-          if ($LASTEXITCODE -ne 0) {
-            exit $LASTEXITCODE
-          }
+          tar -czf \
+          "$GITHUB_WORKSPACE/full-project-cache.tar.gz" \
+          modules-2
 
-      - name: Show cache contents
-        shell: powershell
-        run: |
-          $cache = "$env:USERPROFILE\.gradle\caches\modules-2"
-
-          Write-Host ""
-          Write-Host "========================================"
-          Write-Host "GRADLE CACHE CHECK"
-          Write-Host "========================================"
-
-          Write-Host ""
-          Write-Host "AAPT2:"
-          Get-ChildItem `
-            $cache `
-            -Recurse `
-            -Filter "aapt2-9.3.0-15703166-windows.jar" `
-            -ErrorAction SilentlyContinue |
-            Select-Object FullName, Length
-
-          Write-Host ""
-          Write-Host "Kotlin:"
-          Get-ChildItem `
-            $cache `
-            -Recurse `
-            -Filter "kotlin-stdlib-2.2.10.jar" `
-            -ErrorAction SilentlyContinue |
-            Select-Object FullName, Length
-
-          Write-Host ""
-          Write-Host "AGP:"
-          Get-ChildItem `
-            $cache `
-            -Recurse `
-            -Filter "gradle-9.3.0.pom" `
-            -ErrorAction SilentlyContinue |
-            Select-Object FullName, Length
-
-          Write-Host ""
-          Write-Host "========================================"
-
-      - name: Create cache archive
-        shell: powershell
-        run: |
-          $cacheRoot = "$env:USERPROFILE\.gradle\caches"
-          $output = "$env:GITHUB_WORKSPACE\agp-9.3.0-complete-cache-windows.tar.gz"
-
-          tar.exe `
-            -czf "$output" `
-            -C "$cacheRoot" `
-            modules-2
-
-          if (!(Test-Path $output)) {
-            Write-Error "Cache archive was not created."
-            exit 1
-          }
-
-          Write-Host ""
-          Write-Host "========================================"
-          Write-Host "ARCHIVE CREATED"
-          Write-Host "========================================"
-
-          Get-Item $output |
-            Select-Object Name, Length
 
       - name: Upload cache
         uses: actions/upload-artifact@v4
         with:
-          name: agp-9.3.0-complete-cache-windows
-          path: agp-9.3.0-complete-cache-windows.tar.gz
-          if-no-files-found: error
+
+          name: full-project-cache
+
+          path: full-project-cache.tar.gz
