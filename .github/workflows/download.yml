@@ -8,7 +8,6 @@ jobs:
     runs-on: windows-latest
 
     steps:
-
       - name: Setup JDK 17
         uses: actions/setup-java@v5
         with:
@@ -16,136 +15,121 @@ jobs:
           java-version: '17'
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Download Gradle
         shell: powershell
         run: |
-          Invoke-WebRequest `
-          https://services.gradle.org/distributions/gradle-9.5.0-bin.zip `
-          -OutFile gradle.zip
+          $sdkmanager = "$env:ANDROID_HOME\cmdline-tools\latest\bin\sdkmanager.bat"
+          & $sdkmanager --sdk_root="$env:ANDROID_HOME" "platforms;android-34" "build-tools;36.0.0"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          Expand-Archive gradle.zip .
+      - name: Download Gradle 9.5.0
+        shell: powershell
+        run: |
+          $url = "https://services.gradle.org/distributions/gradle-9.5.0-bin.zip"
+          $zip = "$env:RUNNER_TEMP\gradle.zip"
+          Invoke-WebRequest -Uri $url -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath $env:RUNNER_TEMP -Force
+          & "$env:RUNNER_TEMP\gradle-9.5.0\bin\gradle.bat" --version
 
       - name: Create resolver project
         shell: powershell
         run: |
+          $root = "$env:GITHUB_WORKSPACE\resolver"
 
-          mkdir resolver
+          New-Item -ItemType Directory -Force "$root\app\src\main\java\com\example\resolver" | Out-Null
+          New-Item -ItemType Directory -Force "$root\app\src\main\res\values" | Out-Null
 
-          @"
-pluginManagement {
-    repositories {
-        google()
-        mavenCentral()
-        gradlePluginPortal()
-    }
-}
+          'pluginManagement {' | Set-Content "$root\settings.gradle"
+          '    repositories {' | Add-Content "$root\settings.gradle"
+          '        google()' | Add-Content "$root\settings.gradle"
+          '        mavenCentral()' | Add-Content "$root\settings.gradle"
+          '        gradlePluginPortal()' | Add-Content "$root\settings.gradle"
+          '    }' | Add-Content "$root\settings.gradle"
+          '}' | Add-Content "$root\settings.gradle"
+          '' | Add-Content "$root\settings.gradle"
+          'dependencyResolutionManagement {' | Add-Content "$root\settings.gradle"
+          '    repositories {' | Add-Content "$root\settings.gradle"
+          '        google()' | Add-Content "$root\settings.gradle"
+          '        mavenCentral()' | Add-Content "$root\settings.gradle"
+          '    }' | Add-Content "$root\settings.gradle"
+          '}' | Add-Content "$root\settings.gradle"
+          '' | Add-Content "$root\settings.gradle"
+          'rootProject.name = "resolver"' | Add-Content "$root\settings.gradle"
+          'include(":app")' | Add-Content "$root\settings.gradle"
 
-dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-    repositories {
-        google()
-        mavenCentral()
-    }
-}
+          'plugins {' | Set-Content "$root\build.gradle"
+          "    id 'com.android.application' version '9.3.0' apply false" | Add-Content "$root\build.gradle"
+          '}' | Add-Content "$root\build.gradle"
 
-rootProject.name="resolver"
-"@ | Out-File resolver/settings.gradle
+          'plugins {' | Set-Content "$root\app\build.gradle"
+          "    id 'com.android.application'" | Add-Content "$root\app\build.gradle"
+          '}' | Add-Content "$root\app\build.gradle"
+          '' | Add-Content "$root\app\build.gradle"
+          'android {' | Add-Content "$root\app\build.gradle"
+          '    namespace "com.example.resolver"' | Add-Content "$root\app\build.gradle"
+          '    compileSdk 34' | Add-Content "$root\app\build.gradle"
+          '    defaultConfig {' | Add-Content "$root\app\build.gradle"
+          '        applicationId "com.example.resolver"' | Add-Content "$root\app\build.gradle"
+          '        minSdk 24' | Add-Content "$root\app\build.gradle"
+          '        targetSdk 34' | Add-Content "$root\app\build.gradle"
+          '        versionCode 1' | Add-Content "$root\app\build.gradle"
+          '        versionName "1.0"' | Add-Content "$root\app\build.gradle"
+          '    }' | Add-Content "$root\app\build.gradle"
+          '    compileOptions {' | Add-Content "$root\app\build.gradle"
+          '        sourceCompatibility JavaVersion.VERSION_17' | Add-Content "$root\app\build.gradle"
+          '        targetCompatibility JavaVersion.VERSION_17' | Add-Content "$root\app\build.gradle"
+          '    }' | Add-Content "$root\app\build.gradle"
+          '}' | Add-Content "$root\app\build.gradle"
+          '' | Add-Content "$root\app\build.gradle"
+          'dependencies {' | Add-Content "$root\app\build.gradle"
+          "    implementation 'androidx.appcompat:appcompat:1.6.1'" | Add-Content "$root\app\build.gradle"
+          "    implementation 'com.google.android.material:material:1.10.0'" | Add-Content "$root\app\build.gradle"
+          "    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'" | Add-Content "$root\app\build.gradle"
+          "    implementation 'com.squareup.okhttp3:okhttp:4.12.0'" | Add-Content "$root\app\build.gradle"
+          '}' | Add-Content "$root\app\build.gradle"
 
+          '<?xml version="1.0" encoding="utf-8"?>' | Set-Content "$root\app\src\main\AndroidManifest.xml"
+          '<manifest xmlns:android="http://schemas.android.com/apk/res/android">' | Add-Content "$root\app\src\main\AndroidManifest.xml"
+          '    <application android:label="Resolver">' | Add-Content "$root\app\src\main\AndroidManifest.xml"
+          '    </application>' | Add-Content "$root\app\src\main\AndroidManifest.xml"
+          '</manifest>' | Add-Content "$root\app\src\main\AndroidManifest.xml"
 
-          @"
-plugins {
-    id 'com.android.application' version '9.3.0' apply false
-    id 'org.jetbrains.kotlin.android' version '2.2.10' apply false
-}
-
-
-configurations {
-    allDeps
-}
-
-dependencies {
-
-    allDeps "com.android.tools.build:gradle:9.3.0"
-
-    allDeps "com.android.tools.build:aapt2:9.3.0-15703166"
-
-    allDeps "org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.10"
-
-    allDeps "org.jetbrains.kotlin:kotlin-stdlib:2.2.10"
-
-    allDeps "org.jetbrains.kotlin:kotlin-stdlib-common:2.2.10"
-
-    allDeps "androidx.appcompat:appcompat:1.6.1"
-
-    allDeps "com.google.android.material:material:1.10.0"
-
-    allDeps "androidx.constraintlayout:constraintlayout:2.1.4"
-
-}
-
-
-tasks.register("resolveAll") {
-
-    doLast {
-
-        configurations.allDeps.resolve()
-
-        println "ALL RESOLVED"
-
-    }
-
-}
-"@ | Out-File resolver/build.gradle
-
-
-      - name: Resolve everything
-        shell: powershell
-        working-directory: resolver
-        run: |
-
-          ../gradle-9.5.0/bin/gradle resolveAll `
-          --refresh-dependencies `
-          --no-daemon `
-          --stacktrace
-
-
-      - name: Verify cache
+      - name: Build resolver
         shell: powershell
         run: |
+          Set-Location "$env:GITHUB_WORKSPACE\resolver"
+          & "$env:RUNNER_TEMP\gradle-9.5.0\bin\gradle.bat" assembleDebug --refresh-dependencies --no-daemon --stacktrace
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          Write-Host "Checking AAPT2"
+      - name: Verify required cache files
+        shell: powershell
+        run: |
+          $cache = "$env:USERPROFILE\.gradle\caches\modules-2"
 
-          Get-ChildItem `
-          "$env:USERPROFILE\.gradle\caches\modules-2\files-2.1" `
-          -Recurse `
-          -Filter "*aapt2*"
+          Write-Host "AAPT2:"
+          Get-ChildItem $cache -Recurse -Filter "aapt2-9.3.0-15703166-windows.jar" -ErrorAction SilentlyContinue | Select-Object FullName, Length
 
+          Write-Host "Kotlin:"
+          Get-ChildItem $cache -Recurse -Filter "kotlin-stdlib-2.2.10.jar" -ErrorAction SilentlyContinue | Select-Object FullName, Length
 
-          Write-Host "Checking Kotlin"
-
-          Get-ChildItem `
-          "$env:USERPROFILE\.gradle\caches\modules-2\files-2.1" `
-          -Recurse `
-          -Filter "*kotlin-stdlib-common*"
-
+          Write-Host "AGP:"
+          Get-ChildItem $cache -Recurse -Filter "gradle-9.3.0.pom" -ErrorAction SilentlyContinue | Select-Object FullName, Length
 
       - name: Create cache archive
         shell: powershell
         run: |
+          $cacheRoot = "$env:USERPROFILE\.gradle\caches"
+          $output = "$env:GITHUB_WORKSPACE\agp-9.3.0-complete-cache-windows.tar.gz"
 
-          cd $env:USERPROFILE\.gradle\caches
+          tar.exe -czf "$output" -C "$cacheRoot" modules-2
 
-          tar -czf `
-          "$env:GITHUB_WORKSPACE\gradle-cache-windows.tar.gz" `
-          modules-2
+          if (!(Test-Path $output)) {
+            Write-Error "Cache archive was not created."
+            exit 1
+          }
 
-
-      - name: Upload
+      - name: Upload cache
         uses: actions/upload-artifact@v4
         with:
-
-          name: gradle-cache-windows
-
-          path: gradle-cache-windows.tar.gz
+          name: agp-9.3.0-complete-cache-windows
+          path: agp-9.3.0-complete-cache-windows.tar.gz
+          if-no-files-found: error
