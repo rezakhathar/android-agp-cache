@@ -1,67 +1,151 @@
-name: Download Full Project Gradle Cache
+name: Build Windows Gradle Cache
 
 on:
   workflow_dispatch:
 
 jobs:
-  cache:
-    runs-on: ubuntu-latest
+  build-cache:
+    runs-on: windows-latest
 
     steps:
 
-      - name: Checkout project
-        uses: actions/checkout@v4
-
-
-      - name: Setup Java 17
+      - name: Setup JDK 17
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
-
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-
       - name: Download Gradle
+        shell: powershell
         run: |
-          curl -L -o gradle.zip https://services.gradle.org/distributions/gradle-9.5.0-bin.zip
-          unzip -q gradle.zip
+          Invoke-WebRequest `
+          https://services.gradle.org/distributions/gradle-9.5.0-bin.zip `
+          -OutFile gradle.zip
 
+          Expand-Archive gradle.zip .
 
-      - name: Resolve REAL project dependencies
+      - name: Create resolver project
+        shell: powershell
         run: |
-          chmod +x gradle-9.5.0/bin/gradle
 
-          ./gradle-9.5.0/bin/gradle \
-          build \
-          --refresh-dependencies \
-          --no-daemon \
+          mkdir resolver
+
+          @"
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name="resolver"
+"@ | Out-File resolver/settings.gradle
+
+
+          @"
+plugins {
+    id 'com.android.application' version '9.3.0' apply false
+    id 'org.jetbrains.kotlin.android' version '2.2.10' apply false
+}
+
+
+configurations {
+    allDeps
+}
+
+dependencies {
+
+    allDeps "com.android.tools.build:gradle:9.3.0"
+
+    allDeps "com.android.tools.build:aapt2:9.3.0-15703166"
+
+    allDeps "org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.10"
+
+    allDeps "org.jetbrains.kotlin:kotlin-stdlib:2.2.10"
+
+    allDeps "org.jetbrains.kotlin:kotlin-stdlib-common:2.2.10"
+
+    allDeps "androidx.appcompat:appcompat:1.6.1"
+
+    allDeps "com.google.android.material:material:1.10.0"
+
+    allDeps "androidx.constraintlayout:constraintlayout:2.1.4"
+
+}
+
+
+tasks.register("resolveAll") {
+
+    doLast {
+
+        configurations.allDeps.resolve()
+
+        println "ALL RESOLVED"
+
+    }
+
+}
+"@ | Out-File resolver/build.gradle
+
+
+      - name: Resolve everything
+        shell: powershell
+        working-directory: resolver
+        run: |
+
+          ../gradle-9.5.0/bin/gradle resolveAll `
+          --refresh-dependencies `
+          --no-daemon `
           --stacktrace
 
 
-      - name: Verify Kotlin
+      - name: Verify cache
+        shell: powershell
         run: |
 
-          find ~/.gradle/caches/modules-2/files-2.1 \
-          -name "*kotlin-stdlib-common*" || true
+          Write-Host "Checking AAPT2"
+
+          Get-ChildItem `
+          "$env:USERPROFILE\.gradle\caches\modules-2\files-2.1" `
+          -Recurse `
+          -Filter "*aapt2*"
 
 
-      - name: Package cache
+          Write-Host "Checking Kotlin"
+
+          Get-ChildItem `
+          "$env:USERPROFILE\.gradle\caches\modules-2\files-2.1" `
+          -Recurse `
+          -Filter "*kotlin-stdlib-common*"
+
+
+      - name: Create cache archive
+        shell: powershell
         run: |
 
-          cd ~/.gradle/caches
+          cd $env:USERPROFILE\.gradle\caches
 
-          tar -czf \
-          "$GITHUB_WORKSPACE/full-project-cache.tar.gz" \
+          tar -czf `
+          "$env:GITHUB_WORKSPACE\gradle-cache-windows.tar.gz" `
           modules-2
 
 
-      - name: Upload cache
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
 
-          name: full-project-cache
+          name: gradle-cache-windows
 
-          path: full-project-cache.tar.gz
+          path: gradle-cache-windows.tar.gz
